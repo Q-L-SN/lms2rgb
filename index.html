@@ -119,7 +119,7 @@
       <h1>LMS ↔ RGB 颜色转换器</h1>
       <p>
         使用 Hunt–Pointer–Estevez 矩阵在 LMS 和 sRGB 之间互相转换，并提供颜色预览。若转换后得到的
-        RGB 分量超出 0–255 范围，则视为“不可能颜色”，并隐藏颜色预览。
+        RGB 分量超出 0–255 范围，则视为“不可能颜色”，此时会提示用户并展示最接近的可显示颜色。
       </p>
     </header>
 
@@ -140,7 +140,7 @@
 
     <section>
       <h2>LMS → RGB</h2>
-      <p>输入 LMS 数值并转换为 sRGB；若不是可显示颜色，将提示“不可能颜色”。</p>
+      <p>输入 LMS 数值并转换为 sRGB；若结果是不可能颜色，将提示原因，并显示最接近的可显示颜色。</p>
       <form id="lms-form">
         <label>L<input type="number" id="lms-l" step="0.0001" value="0.9" /></label>
         <label>M<input type="number" id="lms-m" step="0.0001" value="0.8" /></label>
@@ -216,14 +216,20 @@
         const linearRGB = multiplyMatrixVector(matrixLMStoRGB, [l, m, s]);
         const isPossibleColor = linearRGB.every((value) => value >= 0 && value <= 1);
 
-        if (!isPossibleColor) {
-          lmsToRgbOutput.textContent = "转换结果超出 RGB 可显示范围：不可能颜色";
-          lmsChip.hidden = true;
-          return;
+        const targetLinearRGB = isPossibleColor
+          ? linearRGB
+          : linearRGB.map((value) => clamp(value, 0, 1));
+        const rgb = targetLinearRGB.map(linearToSrgb);
+
+        if (isPossibleColor) {
+          lmsToRgbOutput.textContent = formatVector(rgb, ["R", "G", "B"]);
+        } else {
+          lmsToRgbOutput.textContent =
+            "转换结果超出 RGB 可显示范围：不可能颜色。\n" +
+            "最接近的可显示颜色：\n" +
+            formatVector(rgb, ["R", "G", "B"]);
         }
 
-        const rgb = linearRGB.map(linearToSrgb);
-        lmsToRgbOutput.textContent = formatVector(rgb, ["R", "G", "B"]);
         lmsChip.style.backgroundColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
         lmsChip.textContent = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
         lmsChip.hidden = false;
