@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LMS ↔ RGB 颜色转换器</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        line-height: 1.5;
+        background-color: #f5f5f5;
+      }
+
+      body {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem 1.5rem 4rem;
+      }
+
+      h1,
+      h2 {
+        margin-bottom: 0.5rem;
+      }
+
+      p {
+        margin-top: 0;
+      }
+
+      section {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-top: 1.5rem;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      }
+
+      form {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        font-weight: 600;
+        color: #444;
+      }
+
+      input[type="number"] {
+        margin-top: 0.25rem;
+        padding: 0.35rem 0.5rem;
+        border-radius: 6px;
+        border: 1px solid #c8c8c8;
+        font-size: 1rem;
+      }
+
+      button {
+        grid-column: 1 / -1;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: none;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        color: white;
+        background: linear-gradient(120deg, #0f8bff, #25c6ff);
+      }
+
+      .result {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+      }
+
+      .result pre {
+        margin: 0;
+        font-size: 0.95rem;
+        background: #f1f1f1;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        min-width: 260px;
+      }
+
+      .color-chip {
+        width: 160px;
+        height: 100px;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.85);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+      }
+
+      .warning {
+        color: #d9534f;
+        font-weight: 600;
+      }
+
+      @media (max-width: 600px) {
+        form {
+          grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        }
+
+        .color-chip {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>LMS ↔ RGB 颜色转换器</h1>
+      <p>
+        使用 Hunt–Pointer–Estevez 矩阵在 LMS 和 sRGB 之间互相转换，并提供颜色预览。若转换后得到的
+        RGB 分量超出 0–255 范围，则视为“不可能颜色”，此时会提示用户并展示最接近的可显示颜色。
+      </p>
+    </header>
+
+    <section>
+      <h2>RGB → LMS</h2>
+      <p>输入 0–255 的 sRGB 数值，得到线性化后的 LMS 值。</p>
+      <form id="rgb-form">
+        <label>R<input type="number" id="rgb-r" min="0" max="255" value="255" /></label>
+        <label>G<input type="number" id="rgb-g" min="0" max="255" value="200" /></label>
+        <label>B<input type="number" id="rgb-b" min="0" max="255" value="120" /></label>
+        <button type="submit">转换为 LMS</button>
+      </form>
+      <div class="result">
+        <pre id="rgb-to-lms"></pre>
+        <div class="color-chip" id="rgb-color-chip">预览</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>LMS → RGB</h2>
+      <p>输入 LMS 数值并转换为 sRGB；若结果是不可能颜色，将提示原因，并显示最接近的可显示颜色。</p>
+      <form id="lms-form">
+        <label>L<input type="number" id="lms-l" step="0.0001" value="0.9" /></label>
+        <label>M<input type="number" id="lms-m" step="0.0001" value="0.8" /></label>
+        <label>S<input type="number" id="lms-s" step="0.0001" value="0.6" /></label>
+        <button type="submit">转换为 RGB</button>
+      </form>
+      <div class="result">
+        <pre id="lms-to-rgb"></pre>
+        <div class="color-chip" id="lms-color-chip" hidden>预览</div>
+      </div>
+    </section>
+
+    <script>
+      const matrixRGBtoLMS = [
+        [0.3811, 0.5783, 0.0402],
+        [0.1967, 0.7244, 0.0782],
+        [0.0241, 0.1288, 0.8444],
+      ];
+
+      const matrixLMStoRGB = [
+        [4.4679, -3.5873, 0.1193],
+        [-1.2186, 2.3809, -0.1624],
+        [0.0497, -0.2439, 1.2045],
+      ];
+
+      const rgbForm = document.getElementById("rgb-form");
+      const lmsForm = document.getElementById("lms-form");
+      const rgbToLmsOutput = document.getElementById("rgb-to-lms");
+      const lmsToRgbOutput = document.getElementById("lms-to-rgb");
+      const rgbChip = document.getElementById("rgb-color-chip");
+      const lmsChip = document.getElementById("lms-color-chip");
+
+      const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+      function srgbToLinear(channel) {
+        const c = channel / 255;
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      }
+
+      function linearToSrgb(channel) {
+        const c = channel <= 0.0031308 ? 12.92 * channel : 1.055 * Math.pow(channel, 1 / 2.4) - 0.055;
+        return clamp(Math.round(c * 255), 0, 255);
+      }
+
+      function multiplyMatrixVector(matrix, vector) {
+        return matrix.map((row) => row.reduce((sum, value, idx) => sum + value * vector[idx], 0));
+      }
+
+      function formatVector(vector, labels) {
+        return labels.map((label, idx) => `${label}: ${vector[idx].toFixed(6)}`).join("\n");
+      }
+
+      rgbForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const r = clamp(parseFloat(document.getElementById("rgb-r").value) || 0, 0, 255);
+        const g = clamp(parseFloat(document.getElementById("rgb-g").value) || 0, 0, 255);
+        const b = clamp(parseFloat(document.getElementById("rgb-b").value) || 0, 0, 255);
+
+        const linearRGB = [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)];
+        const lms = multiplyMatrixVector(matrixRGBtoLMS, linearRGB);
+
+        rgbToLmsOutput.textContent = formatVector(lms, ["L", "M", "S"]);
+        rgbChip.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+        rgbChip.textContent = `rgb(${r}, ${g}, ${b})`;
+      });
+
+      lmsForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const l = parseFloat(document.getElementById("lms-l").value) || 0;
+        const m = parseFloat(document.getElementById("lms-m").value) || 0;
+        const s = parseFloat(document.getElementById("lms-s").value) || 0;
+
+        const linearRGB = multiplyMatrixVector(matrixLMStoRGB, [l, m, s]);
+        const isPossibleColor = linearRGB.every((value) => value >= 0 && value <= 1);
+
+        const targetLinearRGB = isPossibleColor
+          ? linearRGB
+          : linearRGB.map((value) => clamp(value, 0, 1));
+        const rgb = targetLinearRGB.map(linearToSrgb);
+
+        if (isPossibleColor) {
+          lmsToRgbOutput.textContent = formatVector(rgb, ["R", "G", "B"]);
+        } else {
+          lmsToRgbOutput.textContent =
+            "转换结果超出 RGB 可显示范围：不可能颜色。\n" +
+            "最接近的可显示颜色：\n" +
+            formatVector(rgb, ["R", "G", "B"]);
+        }
+
+        lmsChip.style.backgroundColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        lmsChip.textContent = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        lmsChip.hidden = false;
+      });
+
+      rgbForm.dispatchEvent(new Event("submit"));
+      lmsForm.dispatchEvent(new Event("submit"));
+    </script>
+  </body>
+</html>
