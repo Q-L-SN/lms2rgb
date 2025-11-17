@@ -165,6 +165,7 @@
         [-1.2186, 2.3809, -0.1624],
         [0.0497, -0.2439, 1.2045],
       ];
+      const matrixRGBtoLMSTranspose = transposeMatrix(matrixRGBtoLMS);
 
       const rgbForm = document.getElementById("rgb-form");
       const lmsForm = document.getElementById("lms-form");
@@ -189,8 +190,75 @@
         return matrix.map((row) => row.reduce((sum, value, idx) => sum + value * vector[idx], 0));
       }
 
+      function transposeMatrix(matrix) {
+        return matrix[0].map((_, colIdx) => matrix.map((row) => row[colIdx]));
+      }
+
       function formatVector(vector, labels) {
         return labels.map((label, idx) => `${label}: ${vector[idx].toFixed(6)}`).join("\n");
+      }
+
+      function isWithinDisplayableRange(vector) {
+        return vector.every((value) => value >= 0 && value <= 1);
+      }
+
+      function computeLmsError(linearRGB, targetLms) {
+        const predictedLms = multiplyMatrixVector(matrixRGBtoLMS, linearRGB);
+        return predictedLms.reduce((sum, value, idx) => {
+          const diff = value - targetLms[idx];
+          return sum + diff * diff;
+        }, 0);
+      }
+
+      function computeLmsGradient(linearRGB, targetLms) {
+        const predictedLms = multiplyMatrixVector(matrixRGBtoLMS, linearRGB);
+        const residual = predictedLms.map((value, idx) => value - targetLms[idx]);
+        return matrixRGBtoLMSTranspose.map((row) =>
+          row.reduce((sum, value, idx) => sum + value * residual[idx], 0)
+        );
+      }
+
+      function findClosestDisplayableLinearRGB(targetLms, initialRGB) {
+        const target = initialRGB || multiplyMatrixVector(matrixLMStoRGB, targetLms);
+        if (isWithinDisplayableRange(target)) {
+          return target;
+        }
+
+        let current = target.map((value) => clamp(value, 0, 1));
+        let previousError = computeLmsError(current, targetLms);
+        const maxIterations = 300;
+
+        for (let iteration = 0; iteration < maxIterations; iteration++) {
+          const gradient = computeLmsGradient(current, targetLms);
+          let stepSize = 0.1;
+          let updated = null;
+          let updatedError = previousError;
+
+          while (stepSize > 1e-4) {
+            const candidate = current.map((value, idx) => clamp(value - stepSize * gradient[idx], 0, 1));
+            const candidateError = computeLmsError(candidate, targetLms);
+            if (candidateError <= previousError - 1e-9) {
+              updated = candidate;
+              updatedError = candidateError;
+              break;
+            }
+            stepSize *= 0.5;
+          }
+
+          if (!updated) {
+            break;
+          }
+
+          const maxDelta = Math.max(...updated.map((value, idx) => Math.abs(value - current[idx])));
+          current = updated;
+          if (maxDelta < 1e-5 || Math.abs(previousError - updatedError) < 1e-10) {
+            previousError = updatedError;
+            break;
+          }
+          previousError = updatedError;
+        }
+
+        return current;
       }
 
       rgbForm.addEventListener("submit", (event) => {
@@ -214,11 +282,10 @@
         const s = parseFloat(document.getElementById("lms-s").value) || 0;
 
         const linearRGB = multiplyMatrixVector(matrixLMStoRGB, [l, m, s]);
-        const isPossibleColor = linearRGB.every((value) => value >= 0 && value <= 1);
-
+        const isPossibleColor = isWithinDisplayableRange(linearRGB);
         const targetLinearRGB = isPossibleColor
           ? linearRGB
-          : linearRGB.map((value) => clamp(value, 0, 1));
+          : findClosestDisplayableLinearRGB([l, m, s], linearRGB);
         const rgb = targetLinearRGB.map(linearToSrgb);
 
         if (isPossibleColor) {
